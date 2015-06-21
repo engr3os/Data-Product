@@ -1,0 +1,103 @@
+---
+title       : Predicting the amount of pollutants in any location within the US
+subtitle    : Description of the shiny app "pred_pollutant_app"" 
+author      : Oluwatobi Olabiyi
+job         : Data Science
+framework   : io2012        # {io2012, html5slides, shower, dzslides, ...}
+highlighter : highlight.js  # {highlight.js, prettify, highlight}
+hitheme     : tomorrow      # 
+widgets     : []            # {mathjax, quiz, bootstrap}
+mode        : selfcontained # {standalone, draft}
+knit        : slidify::knit2slides
+---
+
+## Introduction
+
+1. This presentation gives detailed desricption of the overall functionality and backend processing of the shining app "pred_pollutant_app"
+2. The app can be found at https://engr3os.shinyapps.io/pred_pollutant_app
+3. Distributed monitoring sensors are used to monitor polluntants amounts
+4. Sometimes the pollution information of a particular location is not availble due to unavailability of monitoring sensor in that location
+5. Pollution data from multiple sensors close to the location can be used used to predict the average amount of pollutant at the place of interest
+ 
+
+--- .class #id 
+
+## Pred_pollutant_app
+The app was designed by taking the year 2014 pollutant data from EPA website http://aqsdr1.epa.gov/aqsweb/aqstmp/airdata. The data is subset and stored in data frame pollavg and it contains only longitude, latitude, pollutant name and the level of the pollutant. 
+### Preprocessing
+First few rows of data frame pollavg is given below:
+```{r preproc, echo=FALSE, cache=TRUE}
+url <- "http://aqsdr1.epa.gov/aqsweb/aqstmp/airdata/annual_all_2014.zip"
+download.file(url, destfile = "annual_all_2014.zip")
+unzip("annual_all_2014.zip")
+d <- read.csv("annual_all_2014.csv")
+## head(d)
+sub = subset(d, Parameter.Name %in% c("PM2.5 - Local Conditions", "Ozone")
+             & Pollutant.Standard %in% c("Ozone 8-Hour 2008", "PM25 Annual 2006"),
+             c("Longitude", "Latitude", "Parameter.Name", "Arithmetic.Mean"))
+pollavg <- aggregate(sub[, "Arithmetic.Mean"], 
+                     sub[, c("Longitude", "Latitude", "Parameter.Name")], 
+                     mean, na.rm = TRUE)
+## recode the aggregated variable to name "Level"
+names(pollavg)[4] <- "Level"
+## reffacor the Parameter.Name variable to have only 2 levels
+pollavg <- transform(pollavg, Parameter.Name = factor(Parameter.Name))
+rm(d, sub)
+monitors <- data.matrix(pollavg[, c("Longitude", "Latitude")])
+save(pollavg, monitors, file = "polldata.RData")
+head(pollavg)
+```
+
+---
+
+## Average Pollutant Prediction of a Location
+
+This section develops the algorithm to predict the average amount of pollutant of a location based on Roger Peng's yhat illustration in Data Product class Video.
+
+This is the main section of the shinyapp pred_pollutant_app.
+
+Given the logitude and latitude of a particular location, we can calculate the average PM2.5 and Ozone pollutants in an area of a particular radius.
+
+```{r, echo=FALSE, comment = F}
+library(fields)
+library(xtable)
+## Input is data frame with 
+## lon: Longitude
+## lat: Latitude
+## radius: radius in miles
+
+pollutant <- function(df){  
+  x <- data.matrix(df[, c("lon", "lat")])
+  r <- df$radius
+  d <- rdist.earth(monitors, x)
+  use <- lapply(seq_len(ncol(d)), function(i){
+    which(d[, i] < r[i])
+  })
+  levels <- sapply(use, function(idx){
+    with(pollavg[idx, ], tapply(Level, Parameter.Name, mean))
+  })
+  dlevels <- as.data.frame(t(levels))
+  data.frame(df, dlevels)
+}
+
+```
+For example, given the logitude and laitude of Baltimore, MD are -76.61 and 39.28 respectively. We can predict the average pollutant within 30 miles radious as:
+
+```{r }
+pollutant(data.frame(lon = -76.61, lat = 39.28, radius = 30))
+```
+
+---
+
+## Further Details
+
+Please note that the shiny app contains sliders that can be used to select longitude, latitude and radius parameters. 
+
+The longitude and latitude have been limited to ranges with the continental US (-124.62 to -62.36 for longitude and 24.31 to 49.2 for latitude)
+(Source: https://en.wikipedia.org/wiki/Extreme_points_of_the_United_States)
+
+The radius is limited between 20 and 80 miles to provide reasonable prediction. 
+
+For a particulatr location, with longitude and latitude, you can vary the radius to see the efect of including more or less monitors.
+
+You can easily find the longitude and latitude of several US cities here: http://www.mapsofworld.com/lat_long/usa-lat-long.html
